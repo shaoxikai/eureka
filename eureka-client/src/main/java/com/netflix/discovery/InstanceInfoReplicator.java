@@ -106,6 +106,7 @@ class InstanceInfoReplicator implements Runnable {
 
             Long dirtyTimestamp = instanceInfo.isDirtyWithTime();
             if (dirtyTimestamp != null) {
+                // 这里是将当前启动的eureka server 作为一个eureka client 注册到eureka server端上去。
                 discoveryClient.register();
                 instanceInfo.unsetIsDirty(dirtyTimestamp);
             }

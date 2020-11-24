@@ -84,7 +84,8 @@ public class PeerEurekaNode {
     private final TaskDispatcher<String, ReplicationTask> nonBatchingDispatcher;
 
     public PeerEurekaNode(PeerAwareInstanceRegistry registry, String targetHost, String serviceUrl, HttpReplicationClient replicationClient, EurekaServerConfig config) {
-        this(registry, targetHost, serviceUrl, replicationClient, config, BATCH_SIZE, MAX_BATCHING_DELAY_MS, RETRY_SLEEP_TIME_MS, SERVER_UNAVAILABLE_SLEEP_TIME_MS);
+        this(registry, targetHost, serviceUrl, replicationClient, config,
+                BATCH_SIZE, MAX_BATCHING_DELAY_MS, RETRY_SLEEP_TIME_MS, SERVER_UNAVAILABLE_SLEEP_TIME_MS);
     }
 
     /* For testing */ PeerEurekaNode(PeerAwareInstanceRegistry registry, String targetHost, String serviceUrl,
@@ -101,6 +102,7 @@ public class PeerEurekaNode {
 
         String batcherName = getBatcherName();
         ReplicationTaskProcessor taskProcessor = new ReplicationTaskProcessor(targetHost, replicationClient);
+        // 默认500ms，将队列中的任务打成一个batch,batch 最大值为250
         this.batchingDispatcher = TaskDispatchers.createBatchingTaskDispatcher(
                 batcherName,
                 config.getMaxElementsInPeerReplicationPool(),

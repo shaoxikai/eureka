@@ -31,7 +31,7 @@ public class TaskDispatchers {
             }
         };
     }
-
+    // maxBatchingDelay
     public static <ID, T> TaskDispatcher<ID, T> createBatchingTaskDispatcher(String id,
                                                                              int maxBufferSize,
                                                                              int workloadSize,
@@ -40,6 +40,7 @@ public class TaskDispatchers {
                                                                              long congestionRetryDelayMs,
                                                                              long networkFailureRetryMs,
                                                                              TaskProcessor<T> taskProcessor) {
+        // maxBufferSize=10000, workloadSize = 250 ,maxBatchingDelay = 500ms， congestionRetryDelayMs = 1000 networkFailureRetryMs =100
         final AcceptorExecutor<ID, T> acceptorExecutor = new AcceptorExecutor<>(
                 id, maxBufferSize, workloadSize, maxBatchingDelay, congestionRetryDelayMs, networkFailureRetryMs
         );

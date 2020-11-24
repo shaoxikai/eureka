@@ -139,6 +139,15 @@ public class ApplicationResource {
      *            a header parameter containing information whether this is
      *            replicated from other nodes.
      */
+
+    /***
+     * 注册服务
+     * @param info instanceInfo 主要包含两部分信息，
+     *             1、主机名、ip地址、端口号、url地址
+     *             2、lease（租约）的信息：保持心跳的间隔时间，最近心跳的时间，服务注册的时间，服务启动的时间
+     * @param isReplication
+     * @return
+     */
     @POST
     @Consumes({"application/json", "application/xml"})
     public Response addInstance(InstanceInfo info,
@@ -162,6 +171,7 @@ public class ApplicationResource {
         }
 
         // handle cases where clients may be registering with bad DataCenterInfo with missing data
+        // 获取实例信息的数据中心
         DataCenterInfo dataCenterInfo = info.getDataCenterInfo();
         if (dataCenterInfo instanceof UniqueIdentifier) {
             String dataCenterInfoId = ((UniqueIdentifier) dataCenterInfo).getId();

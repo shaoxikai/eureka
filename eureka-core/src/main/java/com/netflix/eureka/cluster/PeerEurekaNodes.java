@@ -85,7 +85,9 @@ public class PeerEurekaNodes {
                 }
         );
         try {
+            //更新eureka集群的信息
             updatePeerEurekaNodes(resolvePeerUrls());
+            // 创建一个任务，更新eureka 集群信息
             Runnable peersUpdateTask = new Runnable() {
                 @Override
                 public void run() {
@@ -97,6 +99,7 @@ public class PeerEurekaNodes {
 
                 }
             };
+            // 默认10分钟执行一下,根据配置文件的配置的eureka server 的url地址更新eureka server 集群列表
             taskExecutor.scheduleWithFixedDelay(
                     peersUpdateTask,
                     serverConfig.getPeerEurekaNodesUpdateIntervalMs(),

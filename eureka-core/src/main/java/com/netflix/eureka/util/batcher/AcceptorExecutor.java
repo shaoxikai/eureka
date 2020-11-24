@@ -192,7 +192,9 @@ class AcceptorExecutor<ID, T> {
                         scheduleTime = now + trafficShaper.transmissionDelay();
                     }
                     if (scheduleTime <= now) {
+                        // 打包batch
                         assignBatchWork();
+
                         assignSingleItemWork();
                     }
 

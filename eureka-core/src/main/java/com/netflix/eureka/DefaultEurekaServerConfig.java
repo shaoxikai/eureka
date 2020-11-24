@@ -89,6 +89,9 @@ public class DefaultEurekaServerConfig implements EurekaServerConfig {
             configInstance.getStringProperty(namespace + "listAutoScalingGroupsRoleName", "ListAutoScalingGroups");
 
     public DefaultEurekaServerConfig() {
+        /**
+         * 读取eureka-server.properties配置文件的配置项到AbstractConfiguration中去
+         */
         init();
     }
 

@@ -86,7 +86,6 @@ import javax.inject.Singleton;
  * </p>
  *
  * @author Karthik Ranganathan, Greg Kim
- *
  */
 @Singleton
 public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry implements PeerAwareInstanceRegistry {
@@ -181,11 +180,11 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     }
 
     /**
+     * 15分钟更新一下1分钟至少接收到心跳的次数
      * Schedule the task that updates <em>renewal threshold</em> periodically.
      * The renewal threshold would be used to determine if the renewals drop
      * dramatically because of network partition and to protect expiring too
      * many instances at a time.
-     *
      */
     private void scheduleRenewalThresholdUpdateTask() {
         timer.schedule(new TimerTask() {
@@ -206,10 +205,11 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     public int syncUp() {
         // Copy entire entry from neighboring DS node
         int count = 0;
-
+        // 最多循环5次
         for (int i = 0; ((i < serverConfig.getRegistrySyncRetries()) && (count == 0)); i++) {
             if (i > 0) {
                 try {
+                    // 睡眠30s
                     Thread.sleep(serverConfig.getRegistrySyncRetryWaitMs());
                 } catch (InterruptedException e) {
                     logger.warn("Interrupted during registry transfer..");
@@ -235,8 +235,11 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
 
     @Override
     public void openForTraffic(ApplicationInfoManager applicationInfoManager, int count) {
+        //加入count=10,expectedNumberOfRenewsPerMin = 10 * 2 = 20;也就是说1分钟类期望的收到的心跳总次数为20
         // Renewals happen every 30 seconds and for a minute it should be a factor of 2.
         this.expectedNumberOfRenewsPerMin = count * 2;
+
+        // 1分钟内心跳续约的阀值为 20 * 0.85 = 17；
         this.numberOfRenewsPerMinThreshold =
                 (int) (this.expectedNumberOfRenewsPerMin * serverConfig.getRenewalPercentThreshold());
         logger.info("Got " + count + " instances from neighboring DS node");
@@ -253,6 +256,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
         }
         logger.info("Changing status to UP");
         applicationInfoManager.setInstanceStatus(InstanceStatus.UP);
+
         super.postInit();
     }
 
@@ -330,7 +334,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
      * get the registry information from the peer eureka nodes at start up.
      *
      * @return false - if the instances count from a replica transfer returned
-     *         zero and if the wait time has not elapsed, otherwise returns true
+     * zero and if the wait time has not elapsed, otherwise returns true
      */
     @Override
     public boolean shouldAllowAccess(boolean remoteRegionRequired) {
@@ -354,12 +358,11 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     }
 
     /**
+     * @return the list of replica nodes.
      * @deprecated use {@link com.netflix.eureka.cluster.PeerEurekaNodes#getPeerEurekaNodes()} directly.
-     *
+     * <p>
      * Gets the list of peer eureka nodes which is the list to replicate
      * information to.
-     *
-     * @return the list of replica nodes.
      */
     @Deprecated
     public List<PeerEurekaNode> getReplicaNodes() {
@@ -395,19 +398,19 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
      * this information to all peer eureka nodes. If this is replication event
      * from other replica nodes then it is not replicated.
      *
-     * @param info
-     *            the {@link InstanceInfo} to be registered and replicated.
-     * @param isReplication
-     *            true if this is a replication event from other replica nodes,
-     *            false otherwise.
+     * @param info          the {@link InstanceInfo} to be registered and replicated.
+     * @param isReplication true if this is a replication event from other replica nodes,
+     *                      false otherwise.
      */
     @Override
     public void register(final InstanceInfo info, final boolean isReplication) {
+        // 续约间隔时间默认为90s
         int leaseDuration = Lease.DEFAULT_DURATION_IN_SECS;
         if (info.getLeaseInfo() != null && info.getLeaseInfo().getDurationInSecs() > 0) {
             leaseDuration = info.getLeaseInfo().getDurationInSecs();
         }
         super.register(info, leaseDuration, isReplication);
+        //将这次注册请求，同步到其他所有的eureka server上去
         replicateToPeers(Action.Register, info.getAppName(), info.getId(), info, null, isReplication);
     }
 
@@ -419,6 +422,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
      */
     public boolean renew(final String appName, final String id, final boolean isReplication) {
         if (super.renew(appName, id, isReplication)) {
+            //将这次心跳续约请求，同步到其他所有的eureka server上去
             replicateToPeers(Action.Heartbeat, appName, id, null, null, isReplication);
             return true;
         }
@@ -460,8 +464,8 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
      * event is a replication from other nodes, then it is not replicated to
      * other nodes.
      *
-     * @param asgName the asg name for which the status needs to be replicated.
-     * @param newStatus the {@link ASGStatus} information that needs to be replicated.
+     * @param asgName       the asg name for which the status needs to be replicated.
+     * @param newStatus     the {@link ASGStatus} information that needs to be replicated.
      * @param isReplication true if this is a replication event from other nodes, false otherwise.
      */
     @Override
@@ -482,6 +486,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
             // The self preservation mode is disabled, hence allowing the instances to expire.
             return true;
         }
+        // 判断1分钟内的心跳续约阀值是否>0,并且 1分钟内eureka server 收到的心跳次数是否大于阀值
         return numberOfRenewsPerMinThreshold > 0 && getNumOfRenewsInLastMin() > numberOfRenewsPerMinThreshold;
     }
 
@@ -590,7 +595,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     /**
      * Checks if an instance is registerable in this region. Instances from other regions are rejected.
      *
-     * @param instanceInfo  th instance info information of the instance
+     * @param instanceInfo th instance info information of the instance
      * @return true, if it can be registered in this server, false otherwise.
      */
     public boolean isRegisterable(InstanceInfo instanceInfo) {
@@ -613,7 +618,6 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     /**
      * Replicates all eureka actions to peer eureka nodes except for replication
      * traffic to this node.
-     *
      */
     private void replicateToPeers(Action action, String appName, String id,
                                   InstanceInfo info /* optional */,
@@ -623,7 +627,7 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
             if (isReplication) {
                 numberOfReplicationsLastMin.increment();
             }
-            // If it is a replication already, do not replicate again as this will create a poison replication
+            // If it is a replication already, do not replicate again as this will createP a poison replication
             if (peerEurekaNodes == Collections.EMPTY_LIST || isReplication) {
                 return;
             }
@@ -643,7 +647,6 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     /**
      * Replicates all instance changes to peer eureka nodes except for
      * replication traffic to this node.
-     *
      */
     private void replicateInstanceActionsToPeers(Action action, String appName,
                                                  String id, InstanceInfo info, InstanceStatus newStatus,

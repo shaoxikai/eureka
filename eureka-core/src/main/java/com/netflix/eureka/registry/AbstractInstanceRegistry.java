@@ -111,6 +111,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
 
     /**
      * Create a new, empty instance registry.
+     * 构建registry的时候执行这个方法，
      */
     protected AbstractInstanceRegistry(EurekaServerConfig serverConfig, EurekaClientConfig clientConfig, ServerCodecs serverCodecs) {
         this.serverConfig = serverConfig;
@@ -120,7 +121,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
         this.recentRegisteredQueue = new CircularQueue<Pair<Long, String>>(1000);
 
         this.renewsLastMin = new MeasuredRate(1000 * 60 * 1);
-
+        // 30s执行一次
         this.deltaRetentionTimer.schedule(getDeltaRetentionTask(),
                 serverConfig.getDeltaRetentionTimerIntervalInMs(),
                 serverConfig.getDeltaRetentionTimerIntervalInMs());
@@ -264,8 +265,11 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
                 lease.serviceUp();
             }
             registrant.setActionType(ActionType.ADDED);
+
             recentlyChangedQueue.add(new RecentlyChangedItem(lease));
+            //记录服务实例的时间戳
             registrant.setLastUpdatedTimestamp();
+            // 是缓存无效
             invalidateCache(registrant.getAppName(), registrant.getVIPAddress(), registrant.getSecureVipAddress());
             logger.info("Registered instance {}/{} with status {} (replication={})",
                     registrant.getAppName(), registrant.getId(), registrant.getStatus(), isReplication);
@@ -294,6 +298,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
     }
 
     /**
+     * 取消注册服务实例方法，将服务实例信息从注册表中移出
      * {@link #cancel(String, String, boolean)} method is overridden by {@link PeerAwareInstanceRegistry}, so each
      * cancel request is replicated to the peers. This is however not desired for expires which would be counted
      * in the remote peers as valid cancellations, so self preservation mode would not kick-in.
@@ -304,9 +309,11 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
             CANCEL.increment(isReplication);
             Map<String, Lease<InstanceInfo>> gMap = registry.get(appName);
             Lease<InstanceInfo> leaseToCancel = null;
+            // 将服务实例从注册表中移出
             if (gMap != null) {
                 leaseToCancel = gMap.remove(id);
             }
+            // 将移出的服务实例保存在最近最近取消的队列中去，
             synchronized (recentCanceledQueue) {
                 recentCanceledQueue.add(new Pair<Long, String>(System.currentTimeMillis(), appName + "(" + id + ")"));
             }
@@ -319,17 +326,20 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
                 logger.warn("DS: Registry: cancel failed because Lease is not registered for: {}/{}", appName, id);
                 return false;
             } else {
+                // 更新服务的清除时间戳
                 leaseToCancel.cancel();
                 InstanceInfo instanceInfo = leaseToCancel.getHolder();
                 String vip = null;
                 String svip = null;
                 if (instanceInfo != null) {
                     instanceInfo.setActionType(ActionType.DELETED);
+                    // 保存有变化的服务实例到最近修改的队列中去
                     recentlyChangedQueue.add(new RecentlyChangedItem(leaseToCancel));
                     instanceInfo.setLastUpdatedTimestamp();
                     vip = instanceInfo.getVIPAddress();
                     svip = instanceInfo.getSecureVipAddress();
                 }
+                // 失效缓存
                 invalidateCache(appName, vip, svip);
                 logger.info("Cancelled instance {}/{} (replication={})", appName, id, isReplication);
                 return true;
@@ -340,6 +350,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
     }
 
     /**
+     * 心跳续约
      * Marks the given instance of the given app name as renewed, and also marks whether it originated from
      * replication.
      *
@@ -381,6 +392,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
                 }
             }
             renewsLastMin.increment();
+            // 服务实例续约
             leaseToRenew.renew();
             return true;
         }
@@ -599,6 +611,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
             if (leaseMap != null) {
                 for (Entry<String, Lease<InstanceInfo>> leaseEntry : leaseMap.entrySet()) {
                     Lease<InstanceInfo> lease = leaseEntry.getValue();
+                    // 判断是否过期，将过期的加入到过期集合中去
                     if (lease.isExpired(additionalLeaseMs) && lease.getHolder() != null) {
                         expiredLeases.add(lease);
                     }
@@ -608,10 +621,14 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
 
         // To compensate for GC pauses or drifting local time, we need to use current registry size as a base for
         // triggering self-preservation. Without that we would wipe out full registry.
+        // 获取本地的注册表的大小，假设本地的注册的服务为10个
         int registrySize = (int) getLocalRegistrySize();
+        // registrySizeThreshold = 10 * 0.85 = 8.5 = 8
         int registrySizeThreshold = (int) (registrySize * serverConfig.getRenewalPercentThreshold());
+        // 那么 evictionLimit = 2
         int evictionLimit = registrySize - registrySizeThreshold;
-
+        // 假设 expiredLeases.size()  = 5，toEvict = 2，
+        // 那么就是说，这里不会一次性把这5个服务实例过期掉的，只会随机选择2个过期
         int toEvict = Math.min(expiredLeases.size(), evictionLimit);
         if (toEvict > 0) {
             logger.info("Evicting {} items (expired={}, evictionLimit={})", toEvict, expiredLeases.size(), evictionLimit);
@@ -627,6 +644,9 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
                 String id = lease.getHolder().getId();
                 EXPIRED.increment();
                 logger.warn("DS: Registry: expired lease for {}/{}", appName, id);
+
+                //调用eureka client的方法请求eureka server端，取消掉这个服务实例，
+                // 注意isReplication=false,那么在eureka server集群里是需要同步到其它server上去的
                 internalCancel(appName, id, false);
             }
         }
@@ -1195,8 +1215,15 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
         return list;
     }
 
+    /**
+     * 使缓存无效
+     * @param appName
+     * @param vipAddress
+     * @param secureVipAddress
+     */
     private void invalidateCache(String appName, @Nullable String vipAddress, @Nullable String secureVipAddress) {
         // invalidate cache
+        // 使缓存无效
         responseCache.invalidate(appName, vipAddress, secureVipAddress);
     }
 
@@ -1223,7 +1250,9 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
         if (evictionTaskRef.get() != null) {
             evictionTaskRef.get().cancel();
         }
+        // EvictionTask 任务是判断本地的服务注册表的中服务是否有故障的，将有故障的服务实例摘除掉
         evictionTaskRef.set(new EvictionTask());
+        // 启动一个线程，每隔60s执行一下 EvictionTask 任务
         evictionTimer.schedule(evictionTaskRef.get(),
                 serverConfig.getEvictionIntervalTimerInMs(),
                 serverConfig.getEvictionIntervalTimerInMs());
@@ -1251,6 +1280,7 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
         @Override
         public void run() {
             try {
+                // 获取补偿时间，防止任务调度慢了，将延迟 任务调度时间慢的差值。
                 long compensationTimeMs = getCompensationTimeMs();
                 logger.info("Running the evict task with compensationTime {}ms", compensationTimeMs);
                 evict(compensationTimeMs);
@@ -1322,6 +1352,10 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
         return rule.apply(r, existingLease, isReplication).status();
     }
 
+    /**
+     * 获取增量注册表的任务
+     * @return
+     */
     private TimerTask getDeltaRetentionTask() {
         return new TimerTask() {
 
@@ -1329,6 +1363,8 @@ public abstract class AbstractInstanceRegistry implements InstanceRegistry {
             public void run() {
                 Iterator<RecentlyChangedItem> it = recentlyChangedQueue.iterator();
                 while (it.hasNext()) {
+                    // 服务实例的变更记录，是否在队t列里停留了超过180s（3分钟），
+                    // 如果超过了3分钟，就会从队列里将这个服务实例变更记录给移除掉
                     if (it.next().getLastUpdateTime() <
                             System.currentTimeMillis() - serverConfig.getRetentionTimeInMSInDeltaQueue()) {
                         it.remove();

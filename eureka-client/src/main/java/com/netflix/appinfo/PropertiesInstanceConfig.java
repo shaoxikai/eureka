@@ -67,6 +67,11 @@ public abstract class PropertiesInstanceConfig extends AbstractInstanceConfig im
         });
     }
 
+    /**
+     * 将eureka-client.properties文件加载到DynamicPropertyFactory 中去，
+     * @param namespace
+     * @param info
+     */
     public PropertiesInstanceConfig(String namespace, DataCenterInfo info) {
         super(info);
 

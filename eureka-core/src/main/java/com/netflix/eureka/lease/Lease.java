@@ -47,14 +47,18 @@ public class Lease<T> {
     private long duration;
 
     public Lease(T r, int durationInSecs) {
+        // r 就是instanceInfo对象实例
         holder = r;
+        // 注册时间
         registrationTimestamp = System.currentTimeMillis();
         lastUpdateTimestamp = registrationTimestamp;
+        // 将durationInSecs 变成毫秒
         duration = (durationInSecs * 1000);
 
     }
 
     /**
+     * 每次续约就是更新一下lastUpdateTimestamp的时间戳
      * Renew the lease, use renewal duration if it was specified by the
      * associated {@link T} during registration, otherwise default duration is
      * {@link #DEFAULT_DURATION_IN_SECS}.
@@ -107,6 +111,9 @@ public class Lease<T> {
      *
      * @param additionalLeaseMs any additional lease time to add to the lease evaluation in ms.
      */
+    // 这里有一个bug,但是源码的开发者不打算修复，产生bug的原因是因为这个地方判断是否过期
+    // 是根据当前的时间戳是否大于 上次更新时间戳+ duration（90s）+补偿时间，而 lastUpdateTimestamp（上次更新时间戳） 是eureka服务实例的当前时间+90s.
+    // 所有这里相当于是说，如果当前时间小于了上次心跳续约时间+2 * 90 + 补偿时间，那么就不过期
     public boolean isExpired(long additionalLeaseMs) {
         return (evictionTimestamp > 0 || System.currentTimeMillis() > (lastUpdateTimestamp + duration + additionalLeaseMs));
     }
